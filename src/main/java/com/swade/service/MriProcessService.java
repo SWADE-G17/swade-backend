@@ -1,47 +1,22 @@
 package com.swade.service;
 
-import com.swade.dto.MriProcessResponse;
 import org.springframework.stereotype.Service;
-
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Simulates AI model processing of NIfTI MRI files.
- * Returns a fake prediction and a dummy processed NIfTI file.
  */
 @Service
 public class MriProcessService {
 
+    public record SimulatedResult(String prediction, byte[] processedNiftiBytes) {}
+
     private static final String SIMULATED_PREDICTION = "Prediction result";
-    private static final String PROCESSED_FILENAME = "processed_mri.nii";
 
     /** Minimal NIfTI-1 header (348 bytes) + small data block for a valid dummy .nii file */
     private static final byte[] DUMMY_NIFTI_BYTES = createDummyNiftiBytes();
 
-    private final Map<String, byte[]> resultFileStore = new ConcurrentHashMap<>();
-
-    /**
-     * Simulates sending the uploaded NIfTI to an AI model and returns
-     * a prediction and a stored processed file reference.
-     */
-    public MriProcessResponse process(byte[] niftiBytes, String originalFilename) {
-        // Simulate AI processing (in real implementation would call external model)
-        String resultFileId = UUID.randomUUID().toString();
-        resultFileStore.put(resultFileId, DUMMY_NIFTI_BYTES);
-        return new MriProcessResponse(SIMULATED_PREDICTION, resultFileId);
-    }
-
-    /**
-     * Returns the processed NIfTI file bytes for the given result ID, or null if not found.
-     */
-    public byte[] getProcessedFile(String resultFileId) {
-        return resultFileStore.get(resultFileId);
-    }
-
-    public String getProcessedFileName() {
-        return PROCESSED_FILENAME;
+    public SimulatedResult simulateProcessing(byte[] niftiBytes, String originalFilename) {
+        return new SimulatedResult(SIMULATED_PREDICTION, DUMMY_NIFTI_BYTES);
     }
 
     private static byte[] createDummyNiftiBytes() {
@@ -59,7 +34,6 @@ public class MriProcessService {
         buf[44] = 2;
         buf[48] = 2;
         buf[52] = 2;
-        // Rest can be zeros; parsers may still accept for testing
         return buf;
     }
 }

@@ -1,9 +1,11 @@
 package com.swade.controller;
 
-import com.swade.dto.MriProcessResponse;
-import com.swade.service.MriProcessService;
-import io.swagger.v3.oas.annotations.Parameter;
+import com.swade.dto.*;
+import com.swade.model.Study;
+import com.swade.model.StudyStatus;
+import com.swade.service.StudyService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -16,30 +18,27 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.List;
 
 @RestController
-@RequestMapping("/api/mri")
-@Tag(name = "MRI Processing", description = "Upload NIfTI files for AI processing and download results")
+@RequestMapping("/estudios")
+@Tag(name = "Estudios", description = "Carga de MRI, estado del estudio, resultados y reporte")
 public class MriProcessController {
 
-    private final MriProcessService mriProcessService;
+    private final StudyService studyService;
 
-    public MriProcessController(MriProcessService mriProcessService) {
-        this.mriProcessService = mriProcessService;
+    public MriProcessController(StudyService studyService) {
+        this.studyService = studyService;
     }
 
-    @PostMapping(value = "/process", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(
-            summary = "Process NIfTI file",
-            description = "Upload a NIfTI (.nii or .nii.gz) file. The file is forwarded to the AI model (simulated). " +
-                    "Returns a JSON prediction and a resultFileId. Use the resultFileId with GET /api/mri/process/result/{resultFileId} to download the processed NIfTI file."
-    )
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Crear estudio", description = "Recibe el archivo MRI (NIfTI), valida el formato, registra el estudio y publica el job en RabbitMQ.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Processing complete",
-                    content = @Content(schema = @Schema(implementation = MriProcessResponse.class))),
-            @ApiResponse(responseCode = "400", description = "No file or invalid file provided")
+            @ApiResponse(responseCode = "202", description = "Estudio creado y encolado",
+                    content = @Content(schema = @Schema(implementation = StudyCreateResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Archivo inválido o faltante")
     })
-    public ResponseEntity<MriProcessResponse> process(
+    public ResponseEntity<StudyCreateResponse> createStudy(
             @Parameter(description = "NIfTI file (.nii or .nii.gz)")
             @RequestParam("file") MultipartFile file) throws IOException {
 
@@ -47,35 +46,102 @@ public class MriProcessController {
             return ResponseEntity.badRequest().build();
         }
 
-        byte[] bytes = file.getBytes();
         String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload.nii";
-        MriProcessResponse response = mriProcessService.process(bytes, originalFilename);
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/process/result/{resultFileId}")
-    @Operation(
-            summary = "Download processed NIfTI file",
-            description = "Download the processed NIfTI file (processed_mri.nii) using the resultFileId returned from POST /api/mri/process."
-    )
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Processed NIfTI file"),
-            @ApiResponse(responseCode = "404", description = "Result not found or expired")
-    })
-    public ResponseEntity<byte[]> downloadResult(@PathVariable String resultFileId) {
-        byte[] fileBytes = mriProcessService.getProcessedFile(resultFileId);
-        if (fileBytes == null) {
-            return ResponseEntity.notFound().build();
+        if (!isNiftiFilename(originalFilename)) {
+            return ResponseEntity.badRequest().build();
         }
 
-        String filename = mriProcessService.getProcessedFileName();
+        Study study = studyService.createAndEnqueue(file.getBytes(), originalFilename);
+        return ResponseEntity.accepted().body(new StudyCreateResponse(study.getId(), study.getStatus(), study.getCreatedAt()));
+    }
+
+    @GetMapping
+    @Operation(summary = "Listar estudios", description = "Retorna el listado de estudios asociados al usuario autenticado (simulado: lista global).")
+    public ResponseEntity<List<StudySummaryResponse>> listStudies() {
+        List<StudySummaryResponse> res = studyService.list().stream()
+                .map(s -> new StudySummaryResponse(s.getId(), s.getOriginalFilename(), s.getStatus(), s.getCreatedAt()))
+                .toList();
+        return ResponseEntity.ok(res);
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Detalle de estudio", description = "Retorna los metadatos y estado actual de un estudio específico.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK",
+                    content = @Content(schema = @Schema(implementation = StudyDetailResponse.class))),
+            @ApiResponse(responseCode = "404", description = "No encontrado")
+    })
+    public ResponseEntity<StudyDetailResponse> getStudy(@PathVariable String id) {
+        Study s = studyService.get(id);
+        if (s == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(new StudyDetailResponse(s.getId(), s.getOriginalFilename(), s.getStatus(), s.getCreatedAt(), s.getError()));
+    }
+
+    @GetMapping("/{id}/resultado")
+    @Operation(summary = "Resultado del estudio", description = "Retorna la predicción, rutas del heatmap y reporte de un estudio completado.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK",
+                    content = @Content(schema = @Schema(implementation = StudyResultResponse.class))),
+            @ApiResponse(responseCode = "404", description = "No encontrado"),
+            @ApiResponse(responseCode = "409", description = "Aún no completado")
+    })
+    public ResponseEntity<StudyResultResponse> getResult(@PathVariable String id) {
+        Study s = studyService.get(id);
+        if (s == null) return ResponseEntity.notFound().build();
+        if (s.getStatus() != StudyStatus.COMPLETED) return ResponseEntity.status(409).build();
+
+        String heatmapPath = "/estudios/" + id + "/resultado/heatmap";
+        String reportPath = "/estudios/" + id + "/reporte";
+        return ResponseEntity.ok(new StudyResultResponse(s.getPrediction(), heatmapPath, reportPath));
+    }
+
+    @GetMapping("/{id}/resultado/heatmap")
+    @Operation(summary = "Descargar heatmap (NIfTI)", description = "Descarga el NIfTI procesado (simulado) para el estudio.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Archivo NIfTI"),
+            @ApiResponse(responseCode = "404", description = "No encontrado"),
+            @ApiResponse(responseCode = "409", description = "Aún no completado")
+    })
+    public ResponseEntity<byte[]> downloadHeatmap(@PathVariable String id) {
+        Study s = studyService.get(id);
+        if (s == null) return ResponseEntity.notFound().build();
+        if (s.getStatus() != StudyStatus.COMPLETED) return ResponseEntity.status(409).build();
+
+        byte[] bytes = studyService.getProcessedNifti(id);
+        if (bytes == null) return ResponseEntity.notFound().build();
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
-        headers.setContentDispositionFormData("attachment", filename);
-        headers.setContentLength(fileBytes.length);
+        headers.setContentDispositionFormData("attachment", "processed_mri.nii");
+        headers.setContentLength(bytes.length);
 
-        return ResponseEntity.ok()
-                .headers(headers)
-                .body(fileBytes);
+        return ResponseEntity.ok().headers(headers).body(bytes);
+    }
+
+    @GetMapping("/{id}/reporte")
+    @Operation(summary = "Descargar reporte PDF", description = "Sirve el archivo PDF del reporte (simulado; luego puede venir de MinIO).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "PDF"),
+            @ApiResponse(responseCode = "404", description = "No encontrado"),
+            @ApiResponse(responseCode = "409", description = "Aún no completado")
+    })
+    public ResponseEntity<byte[]> downloadReport(@PathVariable String id) {
+        Study s = studyService.get(id);
+        if (s == null) return ResponseEntity.notFound().build();
+        if (s.getStatus() != StudyStatus.COMPLETED) return ResponseEntity.status(409).build();
+
+        byte[] pdf = studyService.getReportPdf(id);
+        if (pdf == null) return ResponseEntity.notFound().build();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDispositionFormData("attachment", "reporte.pdf");
+        headers.setContentLength(pdf.length);
+        return ResponseEntity.ok().headers(headers).body(pdf);
+    }
+
+    private static boolean isNiftiFilename(String name) {
+        String lower = name.toLowerCase();
+        return lower.endsWith(".nii") || lower.endsWith(".nii.gz");
     }
 }
