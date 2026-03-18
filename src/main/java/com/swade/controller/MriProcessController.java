@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.bind.annotation.CrossOrigin;
 
 import java.io.IOException;
 import java.util.List;
@@ -31,6 +32,7 @@ public class MriProcessController {
         this.studyService = studyService;
     }
 
+    @CrossOrigin(origins = "http://localhost:3000")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Crear estudio", description = "Recibe el archivo MRI (NIfTI), valida el formato, registra el estudio y publica el job en RabbitMQ.")
     @ApiResponses({
@@ -55,6 +57,7 @@ public class MriProcessController {
         return ResponseEntity.accepted().body(new StudyCreateResponse(study.getId(), study.getStatus(), study.getCreatedAt()));
     }
 
+    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping
     @Operation(summary = "Listar estudios", description = "Retorna el listado de estudios asociados al usuario autenticado (simulado: lista global).")
     public ResponseEntity<List<StudySummaryResponse>> listStudies() {
@@ -64,6 +67,7 @@ public class MriProcessController {
         return ResponseEntity.ok(res);
     }
 
+    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping("/{id}")
     @Operation(summary = "Detalle de estudio", description = "Retorna los metadatos y estado actual de un estudio específico.")
     @ApiResponses({
@@ -77,6 +81,7 @@ public class MriProcessController {
         return ResponseEntity.ok(new StudyDetailResponse(s.getId(), s.getOriginalFilename(), s.getStatus(), s.getCreatedAt(), s.getError()));
     }
 
+    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping("/{id}/resultado")
     @Operation(summary = "Resultado del estudio", description = "Retorna la predicción, rutas del heatmap y reporte de un estudio completado.")
     @ApiResponses({
@@ -95,6 +100,7 @@ public class MriProcessController {
         return ResponseEntity.ok(new StudyResultResponse(s.getPrediction(), heatmapPath, reportPath));
     }
 
+    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping("/{id}/resultado/heatmap")
     @Operation(summary = "Descargar heatmap (NIfTI)", description = "Descarga el NIfTI procesado (simulado) para el estudio.")
     @ApiResponses({
@@ -118,6 +124,7 @@ public class MriProcessController {
         return ResponseEntity.ok().headers(headers).body(bytes);
     }
 
+    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping("/{id}/reporte")
     @Operation(summary = "Descargar reporte PDF", description = "Sirve el archivo PDF del reporte (simulado; luego puede venir de MinIO).")
     @ApiResponses({
