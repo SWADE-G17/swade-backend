@@ -15,10 +15,11 @@ public class StudyJobConsumer {
 
     @RabbitListener(queues = RabbitMqConfig.MRI_PROCESSING_QUEUE, autoStartup = "${swade.rabbitmq.listener.enabled:true}")
     public void consume(StudyJobMessage message) {
-        if (message == null || message.studyId() == null || message.studyId().isBlank()) {
+        if (message == null || message.studyId() == null || message.studyId().isBlank()
+                || message.filePath() == null || message.filePath().isBlank()) {
             return;
         }
-        studyService.processJob(message.studyId());
+        studyService.processJob(message.studyId(), message.filePath());
     }
 }
 

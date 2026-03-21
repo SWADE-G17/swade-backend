@@ -11,6 +11,7 @@ public class Study {
     private volatile String error;
 
     private volatile String prediction;
+    private volatile String inputFilePath;
     private volatile byte[] processedNiftiBytes;
     private volatile byte[] reportPdfBytes;
 
@@ -55,6 +56,14 @@ public class Study {
 
     public void setPrediction(String prediction) {
         this.prediction = prediction;
+    }
+
+    public String getInputFilePath() {
+        return inputFilePath;
+    }
+
+    public void setInputFilePath(String inputFilePath) {
+        this.inputFilePath = inputFilePath;
     }
 
     public byte[] getProcessedNiftiBytes() {

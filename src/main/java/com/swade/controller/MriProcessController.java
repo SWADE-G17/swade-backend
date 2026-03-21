@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.CrossOrigin;
 
-import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -42,7 +41,7 @@ public class MriProcessController {
     })
     public ResponseEntity<StudyCreateResponse> createStudy(
             @Parameter(description = "NIfTI file (.nii or .nii.gz)")
-            @RequestParam("file") MultipartFile file) throws IOException {
+            @RequestParam("file") MultipartFile file) throws Exception {
 
         if (file == null || file.isEmpty()) {
             return ResponseEntity.badRequest().build();
@@ -54,7 +53,15 @@ public class MriProcessController {
         }
 
         Study study = studyService.createAndEnqueue(file.getBytes(), originalFilename);
-        return ResponseEntity.accepted().body(new StudyCreateResponse(study.getId(), study.getStatus(), study.getCreatedAt()));
+        return ResponseEntity.accepted()
+                .body(new StudyCreateResponse(study.getId(), study.getStatus(), study.getInputFilePath(), study.getCreatedAt()));
+    }
+
+    @CrossOrigin(origins = "http://localhost:3000")
+    @GetMapping("/minio/files")
+    @Operation(summary = "Listar archivos en MinIO", description = "Endpoint de prueba para validar que los NIfTI se están guardando en MinIO.")
+    public ResponseEntity<List<String>> listMinioFiles() throws Exception {
+        return ResponseEntity.ok(studyService.listMinioFiles());
     }
 
     @CrossOrigin(origins = "http://localhost:3000")

@@ -16,22 +16,24 @@ public class StudyService {
 
     private final RabbitTemplate rabbitTemplate;
     private final MriProcessService mriProcessService;
+    private final MinioService minioService;
 
     private final Map<String, Study> studies = new ConcurrentHashMap<>();
-    private final Map<String, byte[]> originalFiles = new ConcurrentHashMap<>();
 
-    public StudyService(RabbitTemplate rabbitTemplate, MriProcessService mriProcessService) {
+    public StudyService(RabbitTemplate rabbitTemplate, MriProcessService mriProcessService, MinioService minioService) {
         this.rabbitTemplate = rabbitTemplate;
         this.mriProcessService = mriProcessService;
+        this.minioService = minioService;
     }
 
-    public Study createAndEnqueue(byte[] niftiBytes, String originalFilename) {
+    public Study createAndEnqueue(byte[] niftiBytes, String originalFilename) throws Exception {
         String id = UUID.randomUUID().toString();
         Study study = new Study(id, originalFilename, Instant.now(), StudyStatus.QUEUED);
         studies.put(id, study);
-        originalFiles.put(id, niftiBytes);
+        String filePath = minioService.uploadFile(niftiBytes, originalFilename, id);
+        study.setInputFilePath(filePath);
 
-        rabbitTemplate.convertAndSend(RabbitMqConfig.MRI_PROCESSING_QUEUE, new StudyJobMessage(id));
+        rabbitTemplate.convertAndSend(RabbitMqConfig.MRI_PROCESSING_QUEUE, new StudyJobMessage(id, filePath));
         return study;
     }
 
@@ -55,18 +57,22 @@ public class StudyService {
         return s != null ? s.getReportPdfBytes() : null;
     }
 
+    public List<String> listMinioFiles() throws Exception {
+        return minioService.listFiles();
+    }
+
     /**
      * Executed by the RabbitMQ consumer to process one study job at a time.
      */
-    public void processJob(String studyId) {
+    public void processJob(String studyId, String filePath) {
         Study study = studies.get(studyId);
         if (study == null) return;
 
         study.setStatus(StudyStatus.PROCESSING);
         try {
-            byte[] original = originalFiles.get(studyId);
+            byte[] original = minioService.downloadFile(filePath);
             if (original == null || original.length == 0) {
-                throw new IllegalStateException("Original file not found");
+                throw new IllegalStateException("Original file not found in MinIO");
             }
 
             var result = mriProcessService.simulateProcessing(original, study.getOriginalFilename());
