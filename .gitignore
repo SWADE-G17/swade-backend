@@ -23,4 +23,13 @@
 hs_err_pid*
 replay_pid*
 
+# Environment variables (secrets)
 .env
+
+# Build output
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/

@@ -8,7 +8,7 @@ import java.time.Instant;
 @Schema(description = "Summary of a study")
 public record StudySummaryResponse(
         @Schema(description = "Study ID")
-        String id,
+        Long id,
         @Schema(description = "Original filename")
         String originalFilename,
         @Schema(description = "Current status")
@@ -16,4 +16,3 @@ public record StudySummaryResponse(
         @Schema(description = "Creation timestamp (UTC)")
         Instant createdAt
 ) {}
-

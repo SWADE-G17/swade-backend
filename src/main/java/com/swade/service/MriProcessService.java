@@ -19,6 +19,10 @@ public class MriProcessService {
         return new SimulatedResult(SIMULATED_PREDICTION, DUMMY_NIFTI_BYTES);
     }
 
+    public static byte[] getDummyNiftiBytes() {
+        return DUMMY_NIFTI_BYTES.clone();
+    }
+
     private static byte[] createDummyNiftiBytes() {
         // NIfTI-1 single file (.nii): 348-byte header + optional data
         // Magic "n+1" (0x6E 0x2B 0x31 0x00) at offset 0

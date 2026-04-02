@@ -8,7 +8,7 @@ import java.time.Instant;
 @Schema(description = "Detailed metadata and state of a study")
 public record StudyDetailResponse(
         @Schema(description = "Study ID")
-        String id,
+        Long id,
         @Schema(description = "Original filename")
         String originalFilename,
         @Schema(description = "Current status")
@@ -18,4 +18,3 @@ public record StudyDetailResponse(
         @Schema(description = "Error message, if FAILED", nullable = true)
         String error
 ) {}
-
