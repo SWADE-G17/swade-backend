@@ -19,8 +19,11 @@ public class AuthService {
     }
 
     public UUID getCurrentUserId() {
-        Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        return UUID.fromString(jwt.getSubject());
+        return UUID.fromString(getCurrentJwt().getSubject());
+    }
+
+    public String getCurrentUserRole() {
+        return getCurrentJwt().getClaimAsString("user_role");
     }
 
     public Optional<UsuarioEntity> getCurrentUsuario() {
@@ -29,5 +32,9 @@ public class AuthService {
 
     public boolean usuarioExists(UUID id) {
         return usuarioRepository.existsById(id);
+    }
+
+    private Jwt getCurrentJwt() {
+        return (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
     }
 }

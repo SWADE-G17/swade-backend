@@ -1,5 +1,6 @@
 package com.swade.config;
 
+import com.swade.security.SupabaseJwtAuthenticationConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,6 +31,12 @@ public class SecurityConfig {
     @Value("${swade.cors.allowed-origins:http://localhost:3000}")
     private String allowedOrigins;
 
+    private final SupabaseJwtAuthenticationConverter jwtAuthenticationConverter;
+
+    public SecurityConfig(SupabaseJwtAuthenticationConverter jwtAuthenticationConverter) {
+        this.jwtAuthenticationConverter = jwtAuthenticationConverter;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -44,10 +51,12 @@ public class SecurityConfig {
                     "/v3/api-docs/**",
                     "/actuator/**"
                 ).permitAll()
-                .requestMatchers("/estudios/**").authenticated()
+                .requestMatchers("/admin/**", "/usuarios/**").hasRole("ADMINISTRADOR")
+                .requestMatchers("/estudios/**").hasRole("CLINICO")
                 .anyRequest().permitAll()
             )
-            .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> {}));
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
 
         return http.build();
     }

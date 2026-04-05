@@ -21,6 +21,7 @@ C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\repositor
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\repository\ResultadoRepository.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\repository\UsuarioRepository.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\security\AuthService.java
+C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\security\SupabaseJwtAuthenticationConverter.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\MinioService.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\MriProcessService.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\StudyService.java
