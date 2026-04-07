@@ -1,8 +1,11 @@
 package com.swade.controller;
 
 import com.swade.dto.*;
-import com.swade.model.Study;
+import com.swade.entity.EstudioEntity;
+import com.swade.entity.ResultadoEntity;
+import com.swade.model.EstudioStatusMapper;
 import com.swade.model.StudyStatus;
+import com.swade.security.AuthService;
 import com.swade.service.StudyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -16,10 +19,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.bind.annotation.CrossOrigin;
 
-import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/estudios")
@@ -27,22 +29,25 @@ import java.util.List;
 public class MriProcessController {
 
     private final StudyService studyService;
+    private final AuthService authService;
 
-    public MriProcessController(StudyService studyService) {
+    public MriProcessController(StudyService studyService, AuthService authService) {
         this.studyService = studyService;
+        this.authService = authService;
     }
 
-    @CrossOrigin(origins = "http://localhost:3000")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "Crear estudio", description = "Recibe el archivo MRI (NIfTI), valida el formato, registra el estudio y publica el job en RabbitMQ.")
+    @Operation(summary = "Crear estudio",
+            description = "Recibe el archivo MRI (NIfTI), valida el formato, registra el estudio y publica el job en RabbitMQ.")
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "Estudio creado y encolado",
                     content = @Content(schema = @Schema(implementation = StudyCreateResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Archivo inválido o faltante")
+            @ApiResponse(responseCode = "400", description = "Archivo inválido o faltante"),
+            @ApiResponse(responseCode = "401", description = "No autenticado")
     })
     public ResponseEntity<StudyCreateResponse> createStudy(
             @Parameter(description = "NIfTI file (.nii or .nii.gz)")
-            @RequestParam("file") MultipartFile file) throws IOException {
+            @RequestParam("file") MultipartFile file) throws Exception {
 
         if (file == null || file.isEmpty()) {
             return ResponseEntity.badRequest().build();
@@ -53,98 +58,137 @@ public class MriProcessController {
             return ResponseEntity.badRequest().build();
         }
 
-        Study study = studyService.createAndEnqueue(file.getBytes(), originalFilename);
-        return ResponseEntity.accepted().body(new StudyCreateResponse(study.getId(), study.getStatus(), study.getCreatedAt()));
+        UUID usuarioId = authService.getCurrentUserId();
+        EstudioEntity estudio = studyService.createAndEnqueue(usuarioId, file.getBytes(), originalFilename);
+
+        return ResponseEntity.accepted()
+                .body(new StudyCreateResponse(
+                        estudio.getId(),
+                        EstudioStatusMapper.toApi(estudio.getStatus()),
+                        estudio.getMriPath(),
+                        estudio.getCreatedAt()));
     }
 
-    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping
-    @Operation(summary = "Listar estudios", description = "Retorna el listado de estudios asociados al usuario autenticado (simulado: lista global).")
+    @Operation(summary = "Listar estudios del usuario autenticado",
+            description = "Retorna el listado de estudios del usuario autenticado, ordenados del más reciente al más antiguo.")
     public ResponseEntity<List<StudySummaryResponse>> listStudies() {
-        List<StudySummaryResponse> res = studyService.list().stream()
-                .map(s -> new StudySummaryResponse(s.getId(), s.getOriginalFilename(), s.getStatus(), s.getCreatedAt()))
+        UUID usuarioId = authService.getCurrentUserId();
+        List<StudySummaryResponse> res = studyService.listByUsuario(usuarioId).stream()
+                .map(e -> new StudySummaryResponse(
+                        e.getId(),
+                        e.getOriginalFilename(),
+                        EstudioStatusMapper.toApi(e.getStatus()),
+                        e.getCreatedAt()))
                 .toList();
         return ResponseEntity.ok(res);
     }
 
-    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping("/{id}")
-    @Operation(summary = "Detalle de estudio", description = "Retorna los metadatos y estado actual de un estudio específico.")
+    @Operation(summary = "Detalle de estudio",
+            description = "Retorna los metadatos y estado actual de un estudio específico del usuario autenticado.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK",
                     content = @Content(schema = @Schema(implementation = StudyDetailResponse.class))),
-            @ApiResponse(responseCode = "404", description = "No encontrado")
+            @ApiResponse(responseCode = "404", description = "No encontrado o no pertenece al usuario")
     })
-    public ResponseEntity<StudyDetailResponse> getStudy(@PathVariable String id) {
-        Study s = studyService.get(id);
-        if (s == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(new StudyDetailResponse(s.getId(), s.getOriginalFilename(), s.getStatus(), s.getCreatedAt(), s.getError()));
+    public ResponseEntity<StudyDetailResponse> getStudy(@PathVariable Long id) {
+        UUID usuarioId = authService.getCurrentUserId();
+        return studyService.getByIdAndUsuario(id, usuarioId)
+                .map(e -> ResponseEntity.ok(new StudyDetailResponse(
+                        e.getId(),
+                        e.getOriginalFilename(),
+                        EstudioStatusMapper.toApi(e.getStatus()),
+                        e.getCreatedAt(),
+                        e.getErrorMessage())))
+                .orElse(ResponseEntity.notFound().build());
     }
 
-    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping("/{id}/resultado")
-    @Operation(summary = "Resultado del estudio", description = "Retorna la predicción, rutas del heatmap y reporte de un estudio completado.")
+    @Operation(summary = "Resultado del estudio",
+            description = "Retorna la predicción, rutas del heatmap y reporte de un estudio completado.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK",
                     content = @Content(schema = @Schema(implementation = StudyResultResponse.class))),
             @ApiResponse(responseCode = "404", description = "No encontrado"),
             @ApiResponse(responseCode = "409", description = "Aún no completado")
     })
-    public ResponseEntity<StudyResultResponse> getResult(@PathVariable String id) {
-        Study s = studyService.get(id);
-        if (s == null) return ResponseEntity.notFound().build();
-        if (s.getStatus() != StudyStatus.COMPLETED) return ResponseEntity.status(409).build();
+    public ResponseEntity<StudyResultResponse> getResult(@PathVariable Long id) {
+        UUID usuarioId = authService.getCurrentUserId();
+        EstudioEntity estudio = studyService.getByIdAndUsuario(id, usuarioId).orElse(null);
+        if (estudio == null) return ResponseEntity.notFound().build();
 
-        String heatmapPath = "/estudios/" + id + "/resultado/heatmap";
-        String reportPath = "/estudios/" + id + "/reporte";
-        return ResponseEntity.ok(new StudyResultResponse(s.getPrediction(), heatmapPath, reportPath));
+        StudyStatus apiStatus = EstudioStatusMapper.toApi(estudio.getStatus());
+        if (apiStatus != StudyStatus.COMPLETED) return ResponseEntity.status(409).build();
+
+        ResultadoEntity resultado = studyService.getResultado(estudio.getId()).orElse(null);
+        if (resultado == null) return ResponseEntity.notFound().build();
+
+        String prediction = resultado.getPrediction() != null
+                ? resultado.getPrediction().path("prediction").asText("N/A")
+                : "N/A";
+
+        return ResponseEntity.ok(new StudyResultResponse(
+                prediction,
+                "/estudios/" + id + "/resultado/heatmap",
+                "/estudios/" + id + "/reporte"));
     }
 
-    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping("/{id}/resultado/heatmap")
-    @Operation(summary = "Descargar heatmap (NIfTI)", description = "Descarga el NIfTI procesado (simulado) para el estudio.")
+    @Operation(summary = "Descargar heatmap (NIfTI)",
+            description = "Descarga el NIfTI procesado (simulado) para el estudio.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Archivo NIfTI"),
             @ApiResponse(responseCode = "404", description = "No encontrado"),
             @ApiResponse(responseCode = "409", description = "Aún no completado")
     })
-    public ResponseEntity<byte[]> downloadHeatmap(@PathVariable String id) {
-        Study s = studyService.get(id);
-        if (s == null) return ResponseEntity.notFound().build();
-        if (s.getStatus() != StudyStatus.COMPLETED) return ResponseEntity.status(409).build();
+    public ResponseEntity<byte[]> downloadHeatmap(@PathVariable Long id) {
+        UUID usuarioId = authService.getCurrentUserId();
+        EstudioEntity estudio = studyService.getByIdAndUsuario(id, usuarioId).orElse(null);
+        if (estudio == null) return ResponseEntity.notFound().build();
 
-        byte[] bytes = studyService.getProcessedNifti(id);
-        if (bytes == null) return ResponseEntity.notFound().build();
+        if (EstudioStatusMapper.toApi(estudio.getStatus()) != StudyStatus.COMPLETED) {
+            return ResponseEntity.status(409).build();
+        }
 
+        byte[] bytes = studyService.generateMockedHeatmapBytes();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
         headers.setContentDispositionFormData("attachment", "processed_mri.nii");
         headers.setContentLength(bytes.length);
-
         return ResponseEntity.ok().headers(headers).body(bytes);
     }
 
-    @CrossOrigin(origins = "http://localhost:3000")
     @GetMapping("/{id}/reporte")
-    @Operation(summary = "Descargar reporte PDF", description = "Sirve el archivo PDF del reporte (simulado; luego puede venir de MinIO).")
+    @Operation(summary = "Descargar reporte PDF",
+            description = "Sirve el archivo PDF del reporte (simulado).")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "PDF"),
             @ApiResponse(responseCode = "404", description = "No encontrado"),
             @ApiResponse(responseCode = "409", description = "Aún no completado")
     })
-    public ResponseEntity<byte[]> downloadReport(@PathVariable String id) {
-        Study s = studyService.get(id);
-        if (s == null) return ResponseEntity.notFound().build();
-        if (s.getStatus() != StudyStatus.COMPLETED) return ResponseEntity.status(409).build();
+    public ResponseEntity<byte[]> downloadReport(@PathVariable Long id) {
+        UUID usuarioId = authService.getCurrentUserId();
+        EstudioEntity estudio = studyService.getByIdAndUsuario(id, usuarioId).orElse(null);
+        if (estudio == null) return ResponseEntity.notFound().build();
 
-        byte[] pdf = studyService.getReportPdf(id);
-        if (pdf == null) return ResponseEntity.notFound().build();
+        if (EstudioStatusMapper.toApi(estudio.getStatus()) != StudyStatus.COMPLETED) {
+            return ResponseEntity.status(409).build();
+        }
 
+        byte[] pdf = studyService.generateMockedReportPdf(id);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PDF);
         headers.setContentDispositionFormData("attachment", "reporte.pdf");
         headers.setContentLength(pdf.length);
         return ResponseEntity.ok().headers(headers).body(pdf);
+    }
+
+    @GetMapping("/minio/files")
+    @Operation(summary = "Listar archivos en MinIO",
+            description = "Endpoint de prueba para validar que los NIfTI se están guardando en MinIO.")
+    public ResponseEntity<List<String>> listMinioFiles() throws Exception {
+        return ResponseEntity.ok(studyService.listMinioFiles());
     }
 
     private static boolean isNiftiFilename(String name) {
