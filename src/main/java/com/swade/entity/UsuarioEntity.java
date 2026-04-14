@@ -28,4 +28,7 @@ public class UsuarioEntity {
     public String getEmail() { return email; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+
+    public void setUsername(String username) { this.username = username; }
+    public void setRole(String role) { this.role = role; }
 }
