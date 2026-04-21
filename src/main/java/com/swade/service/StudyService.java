@@ -1,7 +1,6 @@
 package com.swade.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.swade.entity.EstudioEntity;
 import com.swade.entity.EventoEntity;
 import com.swade.entity.ResultadoEntity;
@@ -19,9 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,30 +28,24 @@ public class StudyService {
     private static final Logger log = LoggerFactory.getLogger(StudyService.class);
 
     private final RabbitTemplate rabbitTemplate;
-    private final MriProcessService mriProcessService;
     private final MinioService minioService;
     private final EstudioRepository estudioRepository;
     private final ResultadoRepository resultadoRepository;
     private final UsuarioRepository usuarioRepository;
     private final EventoRepository eventoRepository;
-    private final ObjectMapper objectMapper;
 
     public StudyService(RabbitTemplate rabbitTemplate,
-                        MriProcessService mriProcessService,
                         MinioService minioService,
                         EstudioRepository estudioRepository,
                         ResultadoRepository resultadoRepository,
                         UsuarioRepository usuarioRepository,
-                        EventoRepository eventoRepository,
-                        ObjectMapper objectMapper) {
+                        EventoRepository eventoRepository) {
         this.rabbitTemplate = rabbitTemplate;
-        this.mriProcessService = mriProcessService;
         this.minioService = minioService;
         this.estudioRepository = estudioRepository;
         this.resultadoRepository = resultadoRepository;
         this.usuarioRepository = usuarioRepository;
         this.eventoRepository = eventoRepository;
-        this.objectMapper = objectMapper;
     }
 
     // ── Create ──────────────────────────────────────────────────────────
@@ -101,61 +92,10 @@ public class StudyService {
         return minioService.listFiles();
     }
 
-    // ── Async processing (called by RabbitMQ consumer) ──────────────────
+    // ── MinIO artifact downloads ───────────────────────────────────────
 
-    public void processJob(Long studyId, String filePath) {
-        EstudioEntity estudio = estudioRepository.findById(studyId).orElse(null);
-        if (estudio == null) {
-            log.warn("Study {} not found in DB, skipping", studyId);
-            return;
-        }
-
-        estudio.setStatus(EstudioStatusMapper.toDb(StudyStatus.PROCESSING));
-        estudioRepository.save(estudio);
-        logEvent(estudio, "PROCESSING", null);
-
-        try {
-            byte[] original = minioService.downloadFile(filePath);
-            if (original == null || original.length == 0) {
-                throw new IllegalStateException("Original file not found in MinIO");
-            }
-
-            var simResult = mriProcessService.simulateProcessing(original, estudio.getOriginalFilename());
-
-            JsonNode predictionJson = objectMapper.valueToTree(
-                    Map.of("prediction", simResult.prediction()));
-
-            ResultadoEntity resultado = new ResultadoEntity();
-            resultado.setEstudio(estudio);
-            resultado.setPrediction(predictionJson);
-            resultado.setHeatmapPath("/estudios/" + studyId + "/resultado/heatmap");
-            resultado.setReportPath("/estudios/" + studyId + "/reporte");
-            resultadoRepository.save(resultado);
-
-            estudio.setResult(predictionJson);
-            estudio.setStatus(EstudioStatusMapper.toDb(StudyStatus.COMPLETED));
-            estudioRepository.save(estudio);
-
-            logEvent(estudio, "COMPLETED", predictionJson);
-            log.info("Study {} processed successfully", studyId);
-
-        } catch (Exception e) {
-            log.error("Study {} processing failed: {}", studyId, e.getMessage(), e);
-            estudio.setStatus(EstudioStatusMapper.toDb(StudyStatus.FAILED));
-            estudio.setErrorMessage(e.getMessage());
-            estudioRepository.save(estudio);
-            logEvent(estudio, "FAILED", objectMapper.valueToTree(Map.of("error", e.getMessage())));
-        }
-    }
-
-    // ── Mocked artifact generation ──────────────────────────────────────
-
-    public byte[] generateMockedHeatmapBytes() {
-        return MriProcessService.getDummyNiftiBytes();
-    }
-
-    public byte[] generateMockedReportPdf(Long studyId) {
-        return createDummyPdfBytes(studyId);
+    public byte[] downloadHeatmap(String objectName, String bucket) throws Exception {
+        return minioService.downloadFromBucket(bucket, objectName);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -172,18 +112,4 @@ public class StudyService {
         }
     }
 
-    private static byte[] createDummyPdfBytes(Long studyId) {
-        String body = "%PDF-1.4\n"
-                + "1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n"
-                + "2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj\n"
-                + "3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-                + "/Contents 4 0 R /Resources<< >> >>endobj\n"
-                + "4 0 obj<< /Length 44 >>stream\n"
-                + "BT /F1 18 Tf 72 720 Td (Study " + studyId + ") Tj ET\n"
-                + "endstream endobj\n"
-                + "xref\n0 5\n0000000000 65535 f \n"
-                + "trailer<< /Root 1 0 R /Size 5 >>\n"
-                + "startxref\n0\n%%EOF\n";
-        return body.getBytes(StandardCharsets.US_ASCII);
-    }
 }

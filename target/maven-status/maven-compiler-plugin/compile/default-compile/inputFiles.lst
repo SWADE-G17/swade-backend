@@ -2,16 +2,18 @@ C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\config\Mi
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\config\OpenApiConfig.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\config\SecurityConfig.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\controller\MriProcessController.java
+C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\controller\UsuarioController.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\dto\StudyCreateResponse.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\dto\StudyDetailResponse.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\dto\StudyResultResponse.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\dto\StudySummaryResponse.java
+C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\dto\UsuarioResponse.java
+C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\dto\UsuarioUpdateRequest.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\entity\EstudioEntity.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\entity\EventoEntity.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\entity\ResultadoEntity.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\entity\UsuarioEntity.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\messaging\RabbitMqConfig.java
-C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\messaging\StudyJobConsumer.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\messaging\StudyJobMessage.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\model\EstudioStatusMapper.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\model\Study.java
@@ -23,6 +25,6 @@ C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\repositor
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\security\AuthService.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\security\SupabaseJwtAuthenticationConverter.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\MinioService.java
-C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\MriProcessService.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\StudyService.java
+C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\UsuarioService.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\SwadeBackendApplication.java

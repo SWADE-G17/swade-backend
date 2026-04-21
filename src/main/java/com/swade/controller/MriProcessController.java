@@ -4,6 +4,7 @@ import com.swade.dto.*;
 import com.swade.entity.EstudioEntity;
 import com.swade.entity.ResultadoEntity;
 import com.swade.model.EstudioStatusMapper;
+
 import com.swade.model.StudyStatus;
 import com.swade.security.AuthService;
 import com.swade.service.StudyService;
@@ -125,24 +126,24 @@ public class MriProcessController {
         if (resultado == null) return ResponseEntity.notFound().build();
 
         String prediction = resultado.getPrediction() != null
-                ? resultado.getPrediction().path("prediction").asText("N/A")
+                ? resultado.getPrediction().toString()
                 : "N/A";
 
         return ResponseEntity.ok(new StudyResultResponse(
                 prediction,
-                "/estudios/" + id + "/resultado/heatmap",
-                "/estudios/" + id + "/reporte"));
+                resultado.getHeatmapPath(),
+                resultado.getReportPath()));
     }
 
     @GetMapping("/{id}/resultado/heatmap")
-    @Operation(summary = "Descargar heatmap (NIfTI)",
-            description = "Descarga el NIfTI procesado (simulado) para el estudio.")
+    @Operation(summary = "Descargar heatmap",
+            description = "Descarga la imagen heatmap generada por el modelo para el estudio.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Archivo NIfTI"),
+            @ApiResponse(responseCode = "200", description = "Imagen heatmap"),
             @ApiResponse(responseCode = "404", description = "No encontrado"),
             @ApiResponse(responseCode = "409", description = "Aún no completado")
     })
-    public ResponseEntity<byte[]> downloadHeatmap(@PathVariable Long id) {
+    public ResponseEntity<byte[]> downloadHeatmap(@PathVariable Long id) throws Exception {
         UUID usuarioId = authService.getCurrentUserId();
         EstudioEntity estudio = studyService.getByIdAndUsuario(id, usuarioId).orElse(null);
         if (estudio == null) return ResponseEntity.notFound().build();
@@ -151,37 +152,17 @@ public class MriProcessController {
             return ResponseEntity.status(409).build();
         }
 
-        byte[] bytes = studyService.generateMockedHeatmapBytes();
+        ResultadoEntity resultado = studyService.getResultado(id).orElse(null);
+        if (resultado == null || resultado.getHeatmapPath() == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        byte[] bytes = studyService.downloadHeatmap(resultado.getHeatmapPath(), "heatmaps");
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
-        headers.setContentDispositionFormData("attachment", "processed_mri.nii");
+        headers.setContentType(MediaType.IMAGE_PNG);
+        headers.setContentDispositionFormData("attachment", "heatmap.png");
         headers.setContentLength(bytes.length);
         return ResponseEntity.ok().headers(headers).body(bytes);
-    }
-
-    @GetMapping("/{id}/reporte")
-    @Operation(summary = "Descargar reporte PDF",
-            description = "Sirve el archivo PDF del reporte (simulado).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "PDF"),
-            @ApiResponse(responseCode = "404", description = "No encontrado"),
-            @ApiResponse(responseCode = "409", description = "Aún no completado")
-    })
-    public ResponseEntity<byte[]> downloadReport(@PathVariable Long id) {
-        UUID usuarioId = authService.getCurrentUserId();
-        EstudioEntity estudio = studyService.getByIdAndUsuario(id, usuarioId).orElse(null);
-        if (estudio == null) return ResponseEntity.notFound().build();
-
-        if (EstudioStatusMapper.toApi(estudio.getStatus()) != StudyStatus.COMPLETED) {
-            return ResponseEntity.status(409).build();
-        }
-
-        byte[] pdf = studyService.generateMockedReportPdf(id);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_PDF);
-        headers.setContentDispositionFormData("attachment", "reporte.pdf");
-        headers.setContentLength(pdf.length);
-        return ResponseEntity.ok().headers(headers).body(pdf);
     }
 
     @GetMapping("/minio/files")

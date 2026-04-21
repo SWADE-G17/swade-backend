@@ -41,9 +41,13 @@ public class MinioService {
     }
 
     public byte[] downloadFile(String objectName) throws Exception {
+        return downloadFromBucket(bucketName, objectName);
+    }
+
+    public byte[] downloadFromBucket(String bucket, String objectName) throws Exception {
         try (InputStream in = minioClient.getObject(
                 GetObjectArgs.builder()
-                        .bucket(bucketName)
+                        .bucket(bucket)
                         .object(objectName)
                         .build()
         )) {
