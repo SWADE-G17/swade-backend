@@ -177,7 +177,7 @@ public class MriProcessController {
             @ApiResponse(responseCode = "409", description = "Estudio aún no completado"),
             @ApiResponse(responseCode = "416", description = "Rango fuera del tamaño del objeto")
     })
-    public ResponseEntity<?> streamHeatmap(
+    public ResponseEntity<StreamingResponseBody> streamHeatmap(
             @PathVariable Long id,
             @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatchHeader
@@ -199,7 +199,7 @@ public class MriProcessController {
             @ApiResponse(responseCode = "409", description = "Estudio aún no completado"),
             @ApiResponse(responseCode = "416", description = "Rango fuera del tamaño del objeto")
     })
-    public ResponseEntity<?> streamOrig(
+    public ResponseEntity<StreamingResponseBody> streamOrig(
             @PathVariable Long id,
             @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatchHeader
@@ -224,11 +224,11 @@ public class MriProcessController {
      * ({@code Range} → 206 / 416). On a body response the bytes are piped through a
      * {@link StreamingResponseBody} so we never buffer the whole volume in memory.
      */
-    private ResponseEntity<?> streamArtifact(Long id,
-                                             Function<ResultadoEntity, String> pathExtractor,
-                                             String fallbackFilename,
-                                             String rangeHeader,
-                                             String ifNoneMatchHeader) throws Exception {
+    private ResponseEntity<StreamingResponseBody> streamArtifact(Long id,
+                                                                 Function<ResultadoEntity, String> pathExtractor,
+                                                                 String fallbackFilename,
+                                                                 String rangeHeader,
+                                                                 String ifNoneMatchHeader) throws Exception {
         UUID usuarioId = authService.getCurrentUserId();
         EstudioEntity estudio = studyService.getByIdAndUsuario(id, usuarioId).orElse(null);
         if (estudio == null) return ResponseEntity.notFound().build();
