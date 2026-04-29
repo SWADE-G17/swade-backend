@@ -1,6 +1,7 @@
 package com.swade.service;
 
 import io.minio.*;
+import io.minio.errors.ErrorResponseException;
 import io.minio.messages.Item;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -9,6 +10,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -54,6 +56,92 @@ public class MinioService {
             return in.readAllBytes();
         }
     }
+
+    /**
+     * Cheap metadata-only call: returns size + ETag without opening a body stream.
+     * Used by controllers to evaluate {@code If-None-Match} and validate
+     * {@code Range} requests before pulling bytes.
+     *
+     * @throws MinioObjectNotFoundException if the bucket or object does not exist
+     */
+    public MinioObjectInfo statObject(String bucket, String objectName) throws Exception {
+        try {
+            StatObjectResponse stat = minioClient.statObject(
+                    StatObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(objectName)
+                            .build()
+            );
+            return new MinioObjectInfo(stat.size(), stat.etag());
+        } catch (ErrorResponseException e) {
+            if (NOT_FOUND_CODES.contains(e.errorResponse().code())) {
+                throw new MinioObjectNotFoundException(bucket, objectName, e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Open a streaming handle on an object without buffering its contents in memory.
+     *
+     * <p>The returned {@link StreamedMinioObject} owns the underlying InputStream and
+     * MUST be closed by the caller (typically by handing it to a
+     * {@code StreamingResponseBody}).</p>
+     *
+     * @throws MinioObjectNotFoundException if the bucket or object does not exist
+     */
+    public StreamedMinioObject openObjectStream(String bucket, String objectName) throws Exception {
+        MinioObjectInfo info = statObject(bucket, objectName);
+
+        try {
+            GetObjectResponse stream = minioClient.getObject(
+                    GetObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(objectName)
+                            .build()
+            );
+            return new StreamedMinioObject(stream, info.size(), info.etag());
+        } catch (ErrorResponseException e) {
+            if (NOT_FOUND_CODES.contains(e.errorResponse().code())) {
+                throw new MinioObjectNotFoundException(bucket, objectName, e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Open a streaming handle on a byte range of an object (for HTTP 206 partial-content
+     * responses). The returned stream contains exactly {@code length} bytes starting at
+     * {@code offset}; callers should use {@code length} as the {@code Content-Length} of
+     * their response.
+     *
+     * <p>This method does <em>not</em> validate that {@code offset + length <= objectSize};
+     * callers should call {@link #statObject(String, String)} first and reject the request
+     * with HTTP 416 if it falls outside the object.</p>
+     *
+     * @throws MinioObjectNotFoundException if the bucket or object does not exist
+     */
+    public StreamedMinioObject openObjectStream(String bucket, String objectName,
+                                                long offset, long length) throws Exception {
+        try {
+            GetObjectResponse stream = minioClient.getObject(
+                    GetObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(objectName)
+                            .offset(offset)
+                            .length(length)
+                            .build()
+            );
+            return new StreamedMinioObject(stream, length, null);
+        } catch (ErrorResponseException e) {
+            if (NOT_FOUND_CODES.contains(e.errorResponse().code())) {
+                throw new MinioObjectNotFoundException(bucket, objectName, e);
+            }
+            throw e;
+        }
+    }
+
+    private static final Set<String> NOT_FOUND_CODES = Set.of("NoSuchKey", "NoSuchBucket");
 
     public List<String> listFiles() throws Exception {
         ensureBucketExists();

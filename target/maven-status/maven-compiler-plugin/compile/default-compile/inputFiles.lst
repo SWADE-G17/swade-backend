@@ -24,7 +24,10 @@ C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\repositor
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\repository\UsuarioRepository.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\security\AuthService.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\security\SupabaseJwtAuthenticationConverter.java
+C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\MinioObjectInfo.java
+C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\MinioObjectNotFoundException.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\MinioService.java
+C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\StreamedMinioObject.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\StudyService.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\service\UsuarioService.java
 C:\Users\Daniel\Documents\GitHub\swade-backend\src\main\java\com\swade\SwadeBackendApplication.java

@@ -28,6 +28,9 @@ public class ResultadoEntity {
     @Column(name = "heatmap_path", length = 255)
     private String heatmapPath;
 
+    @Column(name = "orig_path", length = 255)
+    private String origPath;
+
     @Column(name = "report_path", length = 255)
     private String reportPath;
 
@@ -50,6 +53,9 @@ public class ResultadoEntity {
 
     public String getHeatmapPath() { return heatmapPath; }
     public void setHeatmapPath(String heatmapPath) { this.heatmapPath = heatmapPath; }
+
+    public String getOrigPath() { return origPath; }
+    public void setOrigPath(String origPath) { this.origPath = origPath; }
 
     public String getReportPath() { return reportPath; }
     public void setReportPath(String reportPath) { this.reportPath = reportPath; }

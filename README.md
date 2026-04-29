@@ -47,6 +47,7 @@ The backend does **not** expose `/auth/login`, `/auth/logout`, or `/auth/change-
 | `MINIO_ACCESS_KEY`     | MinIO access key                                     | `minio`                                                            |
 | `MINIO_SECRET_KEY`     | MinIO secret key                                     | `minio123`                                                         |
 | `MINIO_BUCKET_NAME`    | MinIO bucket for MRI files                           | `mri-files`                                                        |
+| `MINIO_HEATMAP_BUCKET` | MinIO bucket where the Python worker stores `<id>_heatmap.nii.gz` and `<id>_orig.mgz` (must match the worker's value) | `heatmaps`                                                         |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins         | `http://localhost:3000`                                            |
 
 ## Running
@@ -62,13 +63,18 @@ export SUPABASE_JWT_ISSUER=https://xxx.supabase.co/auth/v1
 ./mvnw spring-boot:run
 ```
 
-## SQL Migration
+## SQL Migrations
 
-Before starting the backend, run the migration in Supabase SQL Editor:
+Before starting the backend, run the migrations in Supabase SQL Editor in chronological order:
 
 ```
 sql/2026-04-01_estudio_auth_integration.sql
+sql/2026-04-29_resultado_orig_path.sql
 ```
+
+The `2026-04-29` migration adds the `orig_path` column to `resultado`, populated by the
+Python worker with the path to the FastSurfer-conformed T1 (`<id>_orig.mgz`) so the backend
+can stream it as the Niivue base image alongside the Grad-CAM overlay.
 
 ## API Usage (with auth)
 
@@ -90,17 +96,60 @@ curl http://localhost:8080/estudios/1 \
   -H "Authorization: Bearer $TOKEN"
 
 # Get result (returns 409 if not completed yet)
+# Response: { prediction, heatmapUrl, origUrl, reportPath }
+# heatmapUrl/origUrl are absolute URLs that point at the proxy endpoints below.
 curl http://localhost:8080/estudios/1/resultado \
   -H "Authorization: Bearer $TOKEN"
 
-# Download heatmap
-curl http://localhost:8080/estudios/1/resultado/heatmap \
-  -H "Authorization: Bearer $TOKEN" -o heatmap.nii
+# Stream Grad-CAM heatmap (.nii.gz) — proxied from MinIO, application/gzip
+curl http://localhost:8080/estudios/1/heatmap \
+  -H "Authorization: Bearer $TOKEN" -o heatmap.nii.gz
+
+# Stream FastSurfer-conformed T1 (.mgz) — proxied from MinIO, application/gzip
+curl http://localhost:8080/estudios/1/orig \
+  -H "Authorization: Bearer $TOKEN" -o orig.mgz
 
 # Download report PDF
 curl http://localhost:8080/estudios/1/reporte \
   -H "Authorization: Bearer $TOKEN" -o report.pdf
 ```
+
+### Niivue integration
+
+The frontend never talks to MinIO directly — it consumes the `heatmapUrl` / `origUrl`
+URLs returned by `GET /estudios/{id}/resultado`. Both URLs hit the backend, which
+re-checks the user's ownership of the study and streams the volume from MinIO with
+`Content-Type: application/gzip`:
+
+```js
+const r = await fetch(`/estudios/${id}/resultado`, { headers: authHeader });
+const { heatmapUrl, origUrl } = await r.json();
+nv.loadVolumes([
+  { url: origUrl,    headers: authHeader },
+  { url: heatmapUrl, headers: authHeader,
+    colormap: "warm", opacity: 0.5, cal_min: 0, cal_max: 1 }
+]);
+```
+
+### Volume streaming: Range + ETag
+
+Both `/estudios/{id}/heatmap` and `/estudios/{id}/orig` advertise:
+
+| Header           | Value example                       | Meaning                                                  |
+|------------------|-------------------------------------|----------------------------------------------------------|
+| `Accept-Ranges`  | `bytes`                             | The endpoint serves byte ranges.                         |
+| `ETag`           | `"abc123…"` (MinIO MD5 / multipart) | Identifies the exact stored object version.              |
+| `Cache-Control`  | `private, max-age=86400, immutable` | Safe to cache per-user for 24h; objects never mutate.    |
+
+The endpoints honor:
+
+- `Range: bytes=<start>-<end>` / `bytes=<start>-` / `bytes=-<suffix>` → `206 Partial Content`
+  with `Content-Range: bytes <start>-<end>/<total>`. Niivue uses this for progressive
+  loading: the volume header arrives first and the rest streams in the background.
+- `If-None-Match: "<etag>"` (or `*`) → `304 Not Modified` with no body when the cached
+  copy in the browser still matches. Re-opening the same study costs nothing.
+- An out-of-range or malformed `Range` → `416 Range Not Satisfiable` with
+  `Content-Range: bytes */<total>`.
 
 ## Swagger UI
 
