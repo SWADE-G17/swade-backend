@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
@@ -42,18 +44,23 @@ import java.util.function.Function;
 @Tag(name = "Estudios", description = "Carga de MRI, estado del estudio, resultados y reporte")
 public class MriProcessController {
 
+    private static final Logger log = LoggerFactory.getLogger(MriProcessController.class);
+
     private static final MediaType APPLICATION_GZIP = MediaType.parseMediaType("application/gzip");
 
     private final StudyService studyService;
     private final AuthService authService;
     private final String heatmapBucket;
+    private final String reportBucket;
 
     public MriProcessController(StudyService studyService,
                                 AuthService authService,
-                                @Value("${mri.minio.heatmap-bucket:heatmaps}") String heatmapBucket) {
+                                @Value("${mri.minio.heatmap-bucket:heatmaps}") String heatmapBucket,
+                                @Value("${mri.minio.report-bucket:reports}") String reportBucket) {
         this.studyService = studyService;
         this.authService = authService;
         this.heatmapBucket = heatmapBucket;
+        this.reportBucket = reportBucket;
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -206,6 +213,65 @@ public class MriProcessController {
     ) throws Exception {
         return streamArtifact(id, ResultadoEntity::getOrigPath, "orig.mgz",
                 rangeHeader, ifNoneMatchHeader);
+    }
+
+    @GetMapping("/{id}/reporte")
+    @Operation(summary = "Stream del reporte PDF",
+            description = "Proxy-stream del reporte PDF generado por el worker para este estudio. " +
+                    "El bucket y key reales se leen de `resultado.report_path`; el frontend nunca habla con MinIO. " +
+                    "El PDF se sirve `inline` para previsualizarlo en el navegador.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Reporte PDF",
+                    content = @Content(mediaType = MediaType.APPLICATION_PDF_VALUE)),
+            @ApiResponse(responseCode = "404", description = "Estudio, resultado o reporte no encontrado"),
+            @ApiResponse(responseCode = "502", description = "Fallo al obtener el reporte desde el almacenamiento")
+    })
+    public ResponseEntity<StreamingResponseBody> streamReporte(@PathVariable Long id) {
+        UUID usuarioId = authService.getCurrentUserId();
+        EstudioEntity estudio = studyService.getByIdAndUsuario(id, usuarioId).orElse(null);
+        if (estudio == null) return ResponseEntity.notFound().build();
+
+        ResultadoEntity resultado = studyService.getResultado(id).orElse(null);
+        if (resultado == null) return ResponseEntity.notFound().build();
+
+        String storedPath = resultado.getReportPath();
+        if (storedPath == null || storedPath.isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        MinioObjectInfo info;
+        StreamedMinioObject minioObject;
+        try {
+            info = studyService.statArtifact(storedPath, reportBucket);
+            minioObject = studyService.openArtifactStream(storedPath, reportBucket);
+        } catch (MinioObjectNotFoundException ex) {
+            log.info("Report not found in MinIO for estudioId={} storedPath={}", id, storedPath);
+            return ResponseEntity.notFound().build();
+        } catch (Exception ex) {
+            log.error("Failed to fetch report from MinIO for estudioId={} storedPath={}: {}",
+                    id, storedPath, ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        }
+
+        StreamingResponseBody body = (OutputStream out) -> {
+            try (InputStream in = minioObject.stream()) {
+                in.transferTo(out);
+            }
+        };
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDisposition(ContentDisposition.inline()
+                .filename("estudio-" + id + "-report.pdf")
+                .build());
+        headers.setCacheControl(CacheControl.maxAge(0, TimeUnit.SECONDS)
+                .cachePrivate()
+                .mustRevalidate());
+        if (info.size() >= 0) {
+            headers.setContentLength(info.size());
+        }
+
+        return ResponseEntity.ok().headers(headers).body(body);
     }
 
     @GetMapping("/minio/files")

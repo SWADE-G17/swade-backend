@@ -22,6 +22,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.UUID;
@@ -36,10 +37,12 @@ import static org.mockito.Mockito.when;
 class MriProcessControllerTest {
 
     private static final String HEATMAP_BUCKET = "heatmaps";
+    private static final String REPORT_BUCKET = "reports";
     private static final UUID USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final Long STUDY_ID = 42L;
     private static final String HEATMAP_PATH = "heatmaps/42_heatmap.nii.gz";
     private static final String ORIG_PATH = "heatmaps/42_orig.mgz";
+    private static final String REPORT_PATH = "reports/42_report.pdf";
     private static final String RAW_ETAG = "abc123def456";
     private static final String QUOTED_ETAG = "\"" + RAW_ETAG + "\"";
 
@@ -51,7 +54,7 @@ class MriProcessControllerTest {
     void setUp() {
         studyService = mock(StudyService.class);
         authService = mock(AuthService.class);
-        controller = new MriProcessController(studyService, authService, HEATMAP_BUCKET);
+        controller = new MriProcessController(studyService, authService, HEATMAP_BUCKET, REPORT_BUCKET);
 
         when(authService.getCurrentUserId()).thenReturn(USER_ID);
 
@@ -326,6 +329,109 @@ class MriProcessControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
     }
 
+    // ── streamReporte ───────────────────────────────────────────────────
+
+    @Test
+    void streamReporte_returns200_withPdfHeadersAndBody() throws Exception {
+        byte[] payload = "%PDF-1.4 fake-pdf-bytes".getBytes();
+        ResultadoEntity resultado = resultadoWithReport(REPORT_PATH);
+        when(studyService.getByIdAndUsuario(STUDY_ID, USER_ID))
+                .thenReturn(Optional.of(completedEstudio()));
+        when(studyService.getResultado(STUDY_ID)).thenReturn(Optional.of(resultado));
+        when(studyService.statArtifact(eq(REPORT_PATH), eq(REPORT_BUCKET)))
+                .thenReturn(new MinioObjectInfo(payload.length, RAW_ETAG));
+        when(studyService.openArtifactStream(eq(REPORT_PATH), eq(REPORT_BUCKET)))
+                .thenReturn(new StreamedMinioObject(new ByteArrayInputStream(payload), payload.length, RAW_ETAG));
+
+        ResponseEntity<StreamingResponseBody> response = controller.streamReporte(STUDY_ID);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        HttpHeaders headers = response.getHeaders();
+        assertThat(headers.getContentType()).isEqualTo(MediaType.APPLICATION_PDF);
+        assertThat(headers.getContentLength()).isEqualTo(payload.length);
+        assertThat(headers.getContentDisposition().getType()).isEqualTo("inline");
+        assertThat(headers.getContentDisposition().getFilename())
+                .isEqualTo("estudio-" + STUDY_ID + "-report.pdf");
+        assertThat(headers.getCacheControl())
+                .contains("private")
+                .contains("max-age=0")
+                .contains("must-revalidate");
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        response.getBody().writeTo(out);
+        assertThat(out.toByteArray()).isEqualTo(payload);
+    }
+
+    @Test
+    void streamReporte_returns404_whenEstudioMissing() {
+        when(studyService.getByIdAndUsuario(STUDY_ID, USER_ID)).thenReturn(Optional.empty());
+
+        ResponseEntity<StreamingResponseBody> response = controller.streamReporte(STUDY_ID);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void streamReporte_returns404_whenResultadoMissing() {
+        when(studyService.getByIdAndUsuario(STUDY_ID, USER_ID))
+                .thenReturn(Optional.of(completedEstudio()));
+        when(studyService.getResultado(STUDY_ID)).thenReturn(Optional.empty());
+
+        ResponseEntity<StreamingResponseBody> response = controller.streamReporte(STUDY_ID);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void streamReporte_returns404_whenReportPathIsNull() {
+        when(studyService.getByIdAndUsuario(STUDY_ID, USER_ID))
+                .thenReturn(Optional.of(completedEstudio()));
+        when(studyService.getResultado(STUDY_ID)).thenReturn(Optional.of(resultadoWithReport(null)));
+
+        ResponseEntity<StreamingResponseBody> response = controller.streamReporte(STUDY_ID);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void streamReporte_returns404_whenReportPathIsBlank() {
+        when(studyService.getByIdAndUsuario(STUDY_ID, USER_ID))
+                .thenReturn(Optional.of(completedEstudio()));
+        when(studyService.getResultado(STUDY_ID)).thenReturn(Optional.of(resultadoWithReport("   ")));
+
+        ResponseEntity<StreamingResponseBody> response = controller.streamReporte(STUDY_ID);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void streamReporte_returns404_whenObjectMissingInMinio() throws Exception {
+        when(studyService.getByIdAndUsuario(STUDY_ID, USER_ID))
+                .thenReturn(Optional.of(completedEstudio()));
+        when(studyService.getResultado(STUDY_ID))
+                .thenReturn(Optional.of(resultadoWithReport(REPORT_PATH)));
+        when(studyService.statArtifact(eq(REPORT_PATH), eq(REPORT_BUCKET)))
+                .thenThrow(new MinioObjectNotFoundException(REPORT_BUCKET, "42_report.pdf", null));
+
+        ResponseEntity<StreamingResponseBody> response = controller.streamReporte(STUDY_ID);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void streamReporte_returns502_onUpstreamFailure() throws Exception {
+        when(studyService.getByIdAndUsuario(STUDY_ID, USER_ID))
+                .thenReturn(Optional.of(completedEstudio()));
+        when(studyService.getResultado(STUDY_ID))
+                .thenReturn(Optional.of(resultadoWithReport(REPORT_PATH)));
+        when(studyService.statArtifact(eq(REPORT_PATH), eq(REPORT_BUCKET)))
+                .thenThrow(new IOException("upstream boom"));
+
+        ResponseEntity<StreamingResponseBody> response = controller.streamReporte(STUDY_ID);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────
 
     /** Stub everything required for {@code /heatmap} to find the artifact and stat it. */
@@ -364,6 +470,12 @@ class MriProcessControllerTest {
         ResultadoEntity r = new ResultadoEntity();
         r.setHeatmapPath(heatmapPath);
         r.setOrigPath(origPath);
+        return r;
+    }
+
+    private static ResultadoEntity resultadoWithReport(String reportPath) {
+        ResultadoEntity r = new ResultadoEntity();
+        r.setReportPath(reportPath);
         return r;
     }
 }

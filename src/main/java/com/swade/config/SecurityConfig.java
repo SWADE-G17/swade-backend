@@ -76,6 +76,10 @@ public class SecurityConfig {
         config.setAllowedOrigins(List.of(allowedOrigins.split(",")));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
+        // Expose response headers the browser JS needs to read on streaming
+        // downloads (e.g. /estudios/{id}/reporte serves Content-Disposition with
+        // the suggested filename).
+        config.setExposedHeaders(List.of("Content-Disposition", "Content-Length", "ETag"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 
