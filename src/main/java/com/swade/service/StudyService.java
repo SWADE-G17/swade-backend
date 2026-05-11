@@ -94,9 +94,67 @@ public class StudyService {
 
     // ── MinIO artifact downloads ───────────────────────────────────────
 
-    public byte[] downloadHeatmap(String objectName, String bucket) throws Exception {
-        return minioService.downloadFromBucket(bucket, objectName);
+    /**
+     * Cheap metadata-only lookup for an artifact: returns size + ETag without
+     * opening a body stream. Use before
+     * {@link #openArtifactStream(String, String)} when you need to evaluate
+     * {@code If-None-Match} or validate a {@code Range} request.
+     */
+    public MinioObjectInfo statArtifact(String storedPath, String defaultBucket) throws Exception {
+        BucketKey bk = parseStoredPath(storedPath, defaultBucket);
+        return minioService.statObject(bk.bucket(), bk.objectName());
     }
+
+    /**
+     * Open a streaming handle to an artifact stored in MinIO.
+     *
+     * <p>{@code storedPath} is the value persisted by the Python worker in
+     * {@code resultado.heatmap_path} or {@code resultado.orig_path}. It is
+     * formatted as {@code "<bucket>/<object-key>"} (e.g.
+     * {@code "heatmaps/123_heatmap.nii.gz"}). When {@code storedPath} does
+     * not contain a {@code /}, the {@code defaultBucket} is used and the
+     * whole value is treated as the object key.</p>
+     *
+     * @throws MinioObjectNotFoundException if the path is malformed or the
+     *         object/bucket does not exist in MinIO
+     */
+    public StreamedMinioObject openArtifactStream(String storedPath, String defaultBucket) throws Exception {
+        BucketKey bk = parseStoredPath(storedPath, defaultBucket);
+        return minioService.openObjectStream(bk.bucket(), bk.objectName());
+    }
+
+    /**
+     * Range-limited variant of {@link #openArtifactStream(String, String)}: returns a stream
+     * containing exactly {@code length} bytes starting at {@code offset}. Used to serve
+     * HTTP 206 Partial Content responses for progressive Niivue loading.
+     */
+    public StreamedMinioObject openArtifactStream(String storedPath, String defaultBucket,
+                                                  long offset, long length) throws Exception {
+        BucketKey bk = parseStoredPath(storedPath, defaultBucket);
+        return minioService.openObjectStream(bk.bucket(), bk.objectName(), offset, length);
+    }
+
+    private static BucketKey parseStoredPath(String storedPath, String defaultBucket) {
+        if (storedPath == null || storedPath.isBlank()) {
+            throw new MinioObjectNotFoundException(defaultBucket, String.valueOf(storedPath), null);
+        }
+        String bucket;
+        String objectName;
+        int slash = storedPath.indexOf('/');
+        if (slash < 0) {
+            bucket = defaultBucket;
+            objectName = storedPath;
+        } else {
+            bucket = storedPath.substring(0, slash);
+            objectName = storedPath.substring(slash + 1);
+        }
+        if (bucket == null || bucket.isBlank() || objectName == null || objectName.isBlank()) {
+            throw new MinioObjectNotFoundException(bucket, objectName, null);
+        }
+        return new BucketKey(bucket, objectName);
+    }
+
+    private record BucketKey(String bucket, String objectName) {}
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
