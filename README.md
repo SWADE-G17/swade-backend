@@ -1,4 +1,15 @@
-# swade-backend
+# SWADE: Backend Service
+
+Este repositorio contiene la API y los servicios de backend para el proyecto SWADE, proporcionando la infraestructura lógica, la gestión de datos y la integración con los modelos de aprendizaje profundo para el soporte en el diagnóstico de la enfermedad de Alzheimer.
+
+El componente se encarga de centralizar las peticiones de la interfaz de usuario, coordinar el flujo de procesamiento de imágenes y asegurar la persistencia de la información.
+
+## Características principales
+
+* **Arquitectura de API:** Implementación de servicios web estructurados para gestionar las peticiones de los clientes, asegurando transferencias de datos eficientes y manejo controlado de errores.
+* **Gestión y persistencia de datos:** Integración con sistemas de bases de datos relacionales para el almacenamiento, consulta y administración del historial de evaluaciones y datos del sistema.
+* **Orquestación del pipeline médico:** Control del flujo de trabajo que recibe los archivos de neuroimagen, gestiona su almacenamiento temporal y coordina la comunicación con el módulo de inferencia del modelo.
+* **Seguridad y autenticación:** Incorporación de mecanismos para el control de acceso, verificación de identidad y protección de las rutas y recursos de la aplicación.
 
 Spring Boot 3.4.1 backend for the SWADE MRI processing platform.
 
